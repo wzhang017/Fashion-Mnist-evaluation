@@ -1,0 +1,344 @@
+########################################mount google drive to google colab#######################################
+
+from google.colab import drive
+drive.mount('/content/drive')
+
+import matplotlib.pyplot as plt
+import numpy as np
+import time
+import tensorflow as tf
+import os
+import keras
+from keras import backend as K
+from keras import layers
+from keras import optimizers
+from keras.models import Model
+from keras.preprocessing.image import ImageDataGenerator
+from keras.utils import to_categorical
+from scipy.ndimage.filters import gaussian_filter
+from scipy.ndimage.interpolation import map_coordinates
+
+################################ define components of Inception V4 model##########################################33
+
+def conv2D_bn_relu(x, filters, kernel_size, strides, padding='valid', kernel_initializer='glorot_uniform', name=None):
+    """2D convolution with batch normalization and ReLU activation.
+    """
+    
+    x = layers.Conv2D(filters=filters, 
+                      kernel_size=kernel_size, 
+                      strides=strides, 
+                      padding=padding, 
+                      kernel_initializer=kernel_initializer,
+                      name=name,
+                      use_bias=False)(x)
+    x = layers.BatchNormalization(scale=False)(x)
+    return layers.Activation('relu')(x)
+
+
+def inception_module_A(x, filters=None, kernel_initializer='glorot_uniform'):
+    """Inception module A as described in Figure 4 of "Inception-v4, Inception-ResNet 
+    and the Impact of Residual Connections on Learning" (Szegedy, et al. 2016).
+    
+    # Arguments
+        x: 4D tensor with shape: `(batch, rows, cols, channels)`.
+        filters: Number of output filters for the module.
+        kernel_initializer: Weight initializer for all convolutional layers in module.
+    """
+    
+    if filters is None:
+        filters = int(x.shape[-1])
+    branch_filters = filters // 4
+    b1 = conv2D_bn_relu(x, 
+                        filters=(branch_filters // 3) * 2, 
+                        kernel_size=1, 
+                        strides=1, 
+                        kernel_initializer=kernel_initializer)
+    b1 = conv2D_bn_relu(b1, 
+                        filters=branch_filters, 
+                        kernel_size=3, 
+                        strides=1, 
+                        padding='same', 
+                        kernel_initializer=kernel_initializer)
+    
+    b2 = conv2D_bn_relu(x, 
+                        filters=(branch_filters // 3) * 2, 
+                        kernel_size=1, 
+                        strides=1, 
+                        kernel_initializer=kernel_initializer)
+    b2 = conv2D_bn_relu(b2, 
+                        filters=branch_filters, 
+                        kernel_size=3, 
+                        strides=1, 
+                        padding='same', 
+                        kernel_initializer=kernel_initializer)
+    b2 = conv2D_bn_relu(b2, 
+                        filters=branch_filters, 
+                        kernel_size=3, 
+                        strides=1, 
+                        padding='same', 
+                        kernel_initializer=kernel_initializer)
+    b3 = conv2D_bn_relu(x, 
+                        filters=branch_filters, 
+                        kernel_size=1, 
+                        strides=1, 
+                        kernel_initializer=kernel_initializer)
+    
+    pool = layers.AveragePooling2D(pool_size=(3, 3), strides=1, padding='same')(x)
+    pool = conv2D_bn_relu(pool, 
+                          filters=branch_filters, 
+                          kernel_size=1, 
+                          strides=1, 
+                          kernel_initializer=kernel_initializer)
+
+    return layers.concatenate([b1, b2, b3, pool])
+
+
+def inception_module_C(x, filters=None, kernel_initializer='glorot_uniform'):
+    """Inception module C as described in Figure 6 of "Inception-v4, Inception-ResNet 
+    and the Impact of Residual Connections on Learning" (Szegedy, et al. 2016).
+    
+    # Arguments
+        x: 4D tensor with shape: `(batch, rows, cols, channels)`.
+        filters: Number of output filters for the module.
+        kernel_initializer: Weight initializer for all convolutional layers in module.
+    """
+        
+    if filters is None:
+        filters = int(x.shape[-1])
+    branch_filters = filters // 6
+    b1 = conv2D_bn_relu(x, 
+                        filters=(branch_filters // 2) * 3, 
+                        kernel_size=1, 
+                        strides=1, 
+                        kernel_initializer=kernel_initializer)
+        
+    b1a = conv2D_bn_relu(b1, 
+                         filters=branch_filters, 
+                         kernel_size=(1, 3), 
+                         strides=1, 
+                         padding='same', 
+                         kernel_initializer=kernel_initializer)
+    
+    b1b = conv2D_bn_relu(b1, 
+                         filters=branch_filters, 
+                         kernel_size=(3, 1), 
+                         strides=1, 
+                         padding='same', 
+                         kernel_initializer=kernel_initializer)
+    
+    b2 = conv2D_bn_relu(x, 
+                        filters=(branch_filters // 2) * 3, 
+                        kernel_size=1, 
+                        strides=1, 
+                        kernel_initializer=kernel_initializer)
+    b2 = conv2D_bn_relu(b2, 
+                        filters=(branch_filters // 4) * 7, 
+                          kernel_size=(1, 3), 
+                        strides=1, 
+                        padding='same', 
+                        kernel_initializer=kernel_initializer)
+    b2 = conv2D_bn_relu(b2, 
+                        filters=branch_filters * 2, 
+                        kernel_size=(3, 1), 
+                        strides=1, 
+                        padding='same', 
+                        kernel_initializer=kernel_initializer)
+
+    b2a = conv2D_bn_relu(b2, 
+                         filters=branch_filters, 
+                         kernel_size=(1, 3), 
+                         strides=1, 
+                         padding='same', 
+                         kernel_initializer=kernel_initializer)
+    
+    b2b = conv2D_bn_relu(b2, 
+                         branch_filters, 
+                         kernel_size=(3, 1), 
+                         strides=1, 
+                         padding='same', 
+                         kernel_initializer=kernel_initializer)
+        
+    b3 = conv2D_bn_relu(x, 
+                        filters=branch_filters, 
+                        kernel_size=1, 
+                        strides=1, 
+                        kernel_initializer=kernel_initializer)
+    
+    pool = layers.AveragePooling2D(pool_size=(3, 3), strides=1, padding='same')(x)
+    pool = conv2D_bn_relu(pool, 
+                          filters=branch_filters, 
+                          kernel_size=1, 
+                          strides=1, 
+                          kernel_initializer=kernel_initializer)
+    return layers.concatenate([b1a, b1b, b2a, b2b, b3, pool])
+
+
+def reduction_module_A(x, filters, kernel_initializer='glorot_uniform'):
+    """Reduction module A as described in Figure 7 of "Inception-v4, Inception-ResNet 
+    and the Impact of Residual Connections on Learning" (Szegedy, et al. 2016).
+    
+    # Arguments
+        x: 4D tensor with shape: `(batch, rows, cols, channels)`.
+        filters: Number of output filters for the module.
+        kernel_initializer: Weight initializer for all convolutional layers in module.
+    """
+
+    branch_filters = (filters - int(x.shape[-1])) // 2
+        
+    b1 = conv2D_bn_relu(x, 
+                        filters=branch_filters, 
+                        kernel_size=3, 
+                        strides=2, 
+                        padding='same', 
+                        kernel_initializer=kernel_initializer)
+    
+    b2 = conv2D_bn_relu(x, 
+                        filters=(branch_filters // 3) * 2, 
+                        kernel_size=1, 
+                        strides=1, 
+                        kernel_initializer=kernel_initializer)
+    b2 = conv2D_bn_relu(b2, 
+                        filters=(branch_filters // 6) * 5, 
+                        kernel_size=3, 
+                        strides=1, 
+                        padding='same', 
+                        kernel_initializer=kernel_initializer)
+    b2 = conv2D_bn_relu(b2, 
+                        filters=branch_filters, 
+                        kernel_size=3, 
+                        strides=2, 
+                        padding='same', 
+                        kernel_initializer=kernel_initializer)
+    
+    pool = layers.MaxPooling2D(pool_size=(3, 3), strides=2, padding='same')(x)
+
+    return layers.concatenate([b1, b2, pool])
+K.clear_session()
+
+stem_width = 128
+
+
+##########################################data import and preprocessing############################################
+(x_train, y_train), (x_test, y_test) = tf.keras.datasets.fashion_mnist.load_data()
+
+# add empty color dimension
+x_train = np.expand_dims(x_train, -1)
+x_test = np.expand_dims(x_test, -1)
+x_train = x_train / 255.0
+x_test=x_test/255.0
+y_train = to_categorical(y_train, 10)
+y_test = to_categorical(y_test, 10)
+epsilon = 0.001
+y_train = y_train * (1 - epsilon) + epsilon / 10
+
+#############################################Model definition#########################################################3
+
+inputs = layers.Input(shape=x_train.shape[1:])
+x = conv2D_bn_relu(inputs,
+                   filters=stem_width,
+                   kernel_size=5,
+                   strides=1,
+                   padding='same',
+                   name='conv_1')
+
+x = reduction_module_A(x, filters=int(2*stem_width))
+x = layers.SpatialDropout2D(0.3)(x)
+
+x = inception_module_A(x, filters=int(2*stem_width))
+x = inception_module_A(x, filters=int(2*stem_width))
+
+x = reduction_module_A(x, filters=int(3*stem_width))
+x = layers.SpatialDropout2D(0.5)(x)
+
+x = inception_module_C(x, filters=int(3*stem_width))
+x = inception_module_C(x, filters=int(3*stem_width))
+x = layers.GlobalAveragePooling2D()(x)
+x = layers.Dropout(0.5)(x)
+x = layers.Dense(10, name='logits')(x)
+x = layers.Activation('softmax', name='softmax')(x)
+
+model = Model(inputs=inputs, outputs=x)
+
+########################################Definition of elastic transform,one of the data augmentation methods we used################
+def elastic_transform(image, alpha_range, sigma, random_state=None):
+    """Elastic deformation of images as described in [Simard2003]_.
+    .. [Simard2003] Simard, Steinkraus and Platt, "Best Practices for
+       Convolutional Neural Networks applied to Visual Document Analysis", in
+       Proc. of the International Conference on Document Analysis and
+       Recognition, 2003.
+       
+   # Arguments
+       image: Numpy array with shape (height, width, channels). 
+       alpha_range: Float for fixed value or [lower, upper] for random value from uniform distribution.
+           Controls intensity of deformation.
+       sigma: Float, sigma of gaussian filter that smooths the displacement fields.
+       random_state: `numpy.random.RandomState` object for generating displacement fields.
+    """
+    
+    if random_state is None:
+        random_state = np.random.RandomState(None)
+        
+    if np.isscalar(alpha_range):
+        alpha = alpha_range
+    else:
+        alpha = np.random.uniform(low=alpha_range[0], high=alpha_range[1])
+    shape = image.shape
+    dx = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma) * alpha
+    dy = gaussian_filter((random_state.rand(*shape) * 2 - 1), sigma) * alpha
+
+    x, y, z = np.meshgrid(np.arange(shape[0]), np.arange(shape[1]), np.arange(shape[2]), indexing='ij')
+    indices = np.reshape(x+dx, (-1, 1)), np.reshape(y+dy, (-1, 1)), np.reshape(z, (-1, 1))
+
+    return map_coordinates(image, indices, order=1, mode='reflect').reshape(shape)
+
+#################################Model training#######################################################################
+train_datagen = ImageDataGenerator(
+    height_shift_range=2,
+    horizontal_flip=True,
+    preprocessing_function=lambda x: elastic_transform(x, alpha_range=[10, 12], sigma=4)
+)
+
+# Note that the validation data should not be augmented!
+#test_datagen = ImageDataGenerator(rescale=1./255)
+test_datagen = ImageDataGenerator()
+
+train_generator = train_datagen.flow(
+        np.array(x_train),
+        np.array(y_train),
+        batch_size=64,
+         shuffle=True
+)
+test_generator = test_datagen.flow(
+        np.array(x_test),
+        np.array(y_test),
+        batch_size=1
+)
+
+model.compile(
+    optimizer=tf.train.AdamOptimizer(learning_rate=0.006,beta1=0.49,beta2=0.999),
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
+STEP_SIZE_TRAIN=train_generator.n//train_generator.batch_size
+STEP_SIZE_VALID=test_generator.n//test_generator.batch_size
+print(STEP_SIZE_TRAIN)
+print(STEP_SIZE_VALID)
+best_model_filename =r"/content/drive/My Drive/Colab Notebooks/inception_model2_weights.h5"
+# save weights for visualization
+pre_train_weights = model.get_layer('conv_1').get_weights()[0]
+pre_train_weights = pre_train_weights.transpose(3, 2, 0, 1)
+chkpt = keras.callbacks.ModelCheckpoint(best_model_filename, monitor='val_acc', 
+                                        save_best_only=True, verbose=False)
+history =model.fit_generator(
+      train_generator,
+      epochs=100,
+      validation_data=test_generator,
+      steps_per_epoch=STEP_SIZE_TRAIN,
+      validation_steps=STEP_SIZE_VALID,
+      callbacks=[chkpt])
+      
+##############################################Prediction on testing set###############################################################
+predict =model.evaluate_generator(test_generator,steps =STEP_SIZE_VALID)
+print(predict)
+
+    
