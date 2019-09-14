@@ -324,7 +324,6 @@ STEP_SIZE_VALID=test_generator.n//test_generator.batch_size
 print(STEP_SIZE_TRAIN)
 print(STEP_SIZE_VALID)
 best_model_filename =r"/content/drive/My Drive/Colab Notebooks/inception_model2_weights.h5"
-# save weights for visualization
 pre_train_weights = model.get_layer('conv_1').get_weights()[0]
 pre_train_weights = pre_train_weights.transpose(3, 2, 0, 1)
 chkpt = keras.callbacks.ModelCheckpoint(best_model_filename, monitor='val_acc', 
