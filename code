@@ -259,7 +259,7 @@ x = layers.Activation('softmax', name='softmax')(x)
 
 model = Model(inputs=inputs, outputs=x)
 
-########################################Definition of elastic transform,one of the data augmentation methods we used################
+####################################Definition of the elastic transform,one of the data augmentation methods we used################
 def elastic_transform(image, alpha_range, sigma, random_state=None):
     """Elastic deformation of images as described in [Simard2003]_.
     .. [Simard2003] Simard, Steinkraus and Platt, "Best Practices for
@@ -291,7 +291,7 @@ def elastic_transform(image, alpha_range, sigma, random_state=None):
 
     return map_coordinates(image, indices, order=1, mode='reflect').reshape(shape)
 
-#################################Model training#######################################################################
+#################################Model training and save the best model to google drive directory#####################################
 train_datagen = ImageDataGenerator(
     height_shift_range=2,
     horizontal_flip=True,
@@ -336,8 +336,13 @@ history =model.fit_generator(
       validation_steps=STEP_SIZE_VALID,
       callbacks=[chkpt])
       
-##############################################Prediction on testing set###############################################################
+##########################Load the best model from google drive directory and perform prediction on testing set#####################
+model = keras.models.load_model(best_model_filename)
+model.compile(
+    optimizer=tf.train.AdamOptimizer(learning_rate=0.006,beta1=0.49,beta2=0.999),
+    loss='categorical_crossentropy',
+    metrics=['accuracy']
+)
 predict =model.evaluate_generator(test_generator,steps =STEP_SIZE_VALID)
 print(predict)
-
     
