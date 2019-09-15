@@ -36,7 +36,7 @@ def conv2D_bn_relu(x, filters, kernel_size, strides, padding='valid', kernel_ini
 
 
 def inception_module_A(x, filters=None, kernel_initializer='glorot_uniform'):
-    """Inception module A as described in Figure 4 of "Inception-v4, Inception-ResNet 
+    """Inception module A of  "Inception-v4, Inception-ResNet 
     and the Impact of Residual Connections on Learning" (Szegedy, et al. 2016).
     
     # Arguments
@@ -94,7 +94,7 @@ def inception_module_A(x, filters=None, kernel_initializer='glorot_uniform'):
 
 
 def inception_module_C(x, filters=None, kernel_initializer='glorot_uniform'):
-    """Inception module C as described in Figure 6 of "Inception-v4, Inception-ResNet 
+    """Inception module C of "Inception-v4, Inception-ResNet 
     and the Impact of Residual Connections on Learning" (Szegedy, et al. 2016).
     
     # Arguments
@@ -174,7 +174,7 @@ def inception_module_C(x, filters=None, kernel_initializer='glorot_uniform'):
 
 
 def reduction_module_A(x, filters, kernel_initializer='glorot_uniform'):
-    """Reduction module A as described in Figure 7 of "Inception-v4, Inception-ResNet 
+    """Reduction module A of "Inception-v4, Inception-ResNet 
     and the Impact of Residual Connections on Learning" (Szegedy, et al. 2016).
     
     # Arguments
@@ -229,6 +229,7 @@ x_test=x_test/255.0
 y_train = to_categorical(y_train, 10)
 y_test = to_categorical(y_test, 10)
 epsilon = 0.001
+#label smoothing
 y_train = y_train * (1 - epsilon) + epsilon / 10
 
 #############################################Model definition#########################################################3
